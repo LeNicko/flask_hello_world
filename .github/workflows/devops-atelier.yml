@@ -1,0 +1,51 @@
+name: Deploy Flask Preview with Ngrok
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-expose:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Docker Image
+        run: docker build -t flask-app .
+
+      - name: Run Docker Container
+        run: docker run -d -p 5000:5000 --name flask-container flask-app
+
+      - name: Install & Setup Ngrok
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install ngrok
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
+
+      - name: Start Ngrok Tunnel
+        run: |
+          # Lancer ngrok en arrière-plan vers le port 5000
+          ngrok http 5000 > /dev/null &
+          sleep 5 # Laisser le temps à ngrok de s'initialiser
+
+      - name: Extract Public URL
+        run: |
+          # Récupérer l'URL via l'API locale de Ngrok
+          URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+          echo "Lien de preview : $URL"
+          echo $URL > url_preview.txt
+
+      - name: Upload URL as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-url
+          path: url_preview.txt
+
+      - name: Wait for 300 seconds
+        run: |
+          echo "Le serveur est en ligne. Vous avez 5 minutes pour tester."
+          sleep 300
+          echo "Temps écoulé, fermeture du tunnel."
